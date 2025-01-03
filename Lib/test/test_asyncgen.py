@@ -2119,7 +2119,5 @@ class AsyncGenAsyncioRunTestCase(unittest.TestCase):
         gc_collect()
 
 
-
-
 if __name__ == "__main__":
     unittest.main()
