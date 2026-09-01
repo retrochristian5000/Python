@@ -1,0 +1,6 @@
+Fix :class:`asyncio.SelectorEventLoop` spinning at 100% CPU forever when the
+event loop's self-pipe socketpair reaches EOF, which can happen when Windows
+tears down the idle loopback connection across a power or session state
+change.  The loop now rebuilds the self-pipe (moving any registered signal
+wakeup fd to the new socket) and re-registers the reader on the new socket
+instead of leaving it on a socket that is readable forever.
