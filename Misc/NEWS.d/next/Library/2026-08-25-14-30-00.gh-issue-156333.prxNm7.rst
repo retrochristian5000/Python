@@ -1,0 +1,6 @@
+Fix :class:`asyncio.ProactorEventLoop` spinning at 100% CPU forever when the
+event loop's self-pipe socketpair reaches EOF, which can happen when Windows
+tears down the idle loopback connection across a power or session state
+change.  The loop now detects the EOF, rebuilds the self-pipe, and re-arms
+the read on the new socket instead of re-arming a read that completes
+immediately.
