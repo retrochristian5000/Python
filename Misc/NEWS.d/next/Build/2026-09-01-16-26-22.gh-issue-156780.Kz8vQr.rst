@@ -1,0 +1,9 @@
+Emscripten: allow CPython to be linked statically. The platform glue reached
+from :c:macro:`EM_JS` bodies for ``resolveGlobalSymbol()``, ``wasmTable`` and
+``addFunction()``, which exist only in ``-sMAIN_MODULE`` builds, and for
+``_PyRuntime``, which only CPython's own link exports. Emscripten cannot see
+inside an ``EM_JS`` body, so without ``--enable-wasm-dynamic-linking`` these
+were silently omitted and startup failed with a ``ReferenceError``. Embedders
+linking a static ``libpython`` must now opt in to wrapping the program entry
+point with ``WebAssembly.promising()`` by setting
+``Module.Py_EmscriptenPromisingMain``.
