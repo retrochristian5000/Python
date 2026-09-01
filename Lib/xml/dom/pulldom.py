@@ -202,10 +202,11 @@ class ErrorHandler:
         raise exception
 
 class DOMEventStream:
-    def __init__(self, stream, parser, bufsize):
+    def __init__(self, stream, parser, bufsize, _owns_stream=False):
         self.stream = stream
         self.parser = parser
         self.bufsize = bufsize
+        self._owns_stream = _owns_stream
         if not hasattr(self.parser, 'feed'):
             self.getEvent = self._slurp
         self.reset()
@@ -224,6 +225,12 @@ class DOMEventStream:
 
     def __iter__(self):
         return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.clear()
 
     def expandNode(self, node):
         event = self.getEvent()
@@ -275,8 +282,11 @@ class DOMEventStream:
 
     def clear(self):
         """clear(): Explicitly release parsing objects"""
-        self.pulldom.clear()
-        del self.pulldom
+        if self._owns_stream and self.stream is not None:
+            self.stream.close()
+        if self.pulldom is not None:
+            self.pulldom.clear()
+        self.pulldom = None
         self.parser = None
         self.stream = None
 
@@ -320,11 +330,13 @@ def parse(stream_or_string, parser=None, bufsize=None):
         bufsize = default_bufsize
     if isinstance(stream_or_string, str):
         stream = open(stream_or_string, 'rb')
+        owns_stream = True
     else:
         stream = stream_or_string
+        owns_stream = False
     if not parser:
         parser = xml.sax.make_parser()
-    return DOMEventStream(stream, parser, bufsize)
+    return DOMEventStream(stream, parser, bufsize, _owns_stream=owns_stream)
 
 def parseString(string, parser=None):
     from io import StringIO
