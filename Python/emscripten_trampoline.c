@@ -47,6 +47,12 @@ typedef PyObject* (*TrampolineFunc)(int* success,
                                     PyObject* args,
                                     PyObject* kw);
 
+// Emscripten binds a C global into the JS glue only when it is exported, and an
+// embedder linking libpython statically does not get CPython's own
+// -sEXPORTED_FUNCTIONS. Export the address from here so the setup code below
+// needs no link flags of its own.
+EMSCRIPTEN_KEEPALIVE _PyRuntimeState *const _PyEM_runtime = &_PyRuntime;
+
 /**
  * Backwards compatible trampoline works with all JS runtimes
  */
@@ -90,9 +96,14 @@ function getPyEMTrampolinePtr() {
 addOnPreRun(function setEmscriptenTrampoline() {
     const ptr = getPyEMTrampolinePtr();
     const offset = HEAP32[__PyEM_EMSCRIPTEN_TRAMPOLINE_OFFSET / 4];
-    HEAP32[(__PyRuntime + offset) / 4] = ptr;
+    HEAP32[(HEAPU32[__PyEM_runtime / 4] + offset) / 4] = ptr;
 });
 );
+
+// Emscripten cannot see what an EM_JS body references. Under -sMAIN_MODULE
+// libdylink.js happens to pull these in; a static link needs them declared, and
+// addFunction() additionally needs configure's -sALLOW_TABLE_GROWTH.
+EM_JS_DEPS(_PyEM_TrampolineCall, "$wasmTable,$addFunction,$addOnPreRun");
 
 PyObject*
 _PyEM_TrampolineCall(PyCFunctionWithKeywords func,

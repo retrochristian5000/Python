@@ -9983,6 +9983,14 @@ then :
 
       as_fn_append LINKFORSHARED " -sMAIN_MODULE"
 
+printf "%s\n" "#define Py_EMSCRIPTEN_DYNAMIC_LINKING 1" >>confdefs.h
+
+
+else case e in #(
+  e)
+                  as_fn_append LINKFORSHARED " -sALLOW_TABLE_GROWTH"
+     ;;
+esac
 fi
 
     if test "x$enable_wasm_pthreads" = xyes

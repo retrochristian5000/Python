@@ -2446,6 +2446,12 @@ AS_CASE([$ac_sys_system],
 
     AS_VAR_IF([enable_wasm_dynamic_linking], [yes], [
       AS_VAR_APPEND([LINKFORSHARED], [" -sMAIN_MODULE"])
+      AC_DEFINE([Py_EMSCRIPTEN_DYNAMIC_LINKING], [1],
+                [Define if the Emscripten build is linked with -sMAIN_MODULE.])
+    ], [
+      dnl Without MAIN_MODULE the call trampoline's addFunction() needs the
+      dnl function table to be growable; MAIN_MODULE implies this.
+      AS_VAR_APPEND([LINKFORSHARED], [" -sALLOW_TABLE_GROWTH"])
     ])
 
     AS_VAR_IF([enable_wasm_pthreads], [yes], [

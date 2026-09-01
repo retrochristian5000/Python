@@ -1,5 +1,7 @@
 #include "emscripten.h"
 #include "stdio.h"
+// for Py_EMSCRIPTEN_DYNAMIC_LINKING
+#include "pyconfig.h"
 
 // All system calls: return nonnegative number on success, return -errno on
 // failure. Negative results get stored back into errno here:
@@ -54,7 +56,7 @@ __attribute__((constructor)) void __syscall_init_umask(void) {
 #define EM_JS_MACROS(ret, func_name, args, body...)                            \
   EM_JS(ret, func_name, args, body)
 
-EM_JS_MACROS(void, _emscripten_promising_main_js, (void), {
+EM_JS_MACROS(void, _emscripten_setup_async_input_device_js, (void), {
     // Define FS.createAsyncInputDevice(), This is quite similar to
     // FS.createDevice() defined here:
     // https://github.com/emscripten-core/emscripten/blob/4.0.11/src/lib/libfs.js?plain=1#L1642
@@ -103,34 +105,83 @@ EM_JS_MACROS(void, _emscripten_promising_main_js, (void), {
         FS.registerDevice(dev, ops);
         return FS.mkdev(path, mode, dev);
     };
+})
+
+EM_JS_DEPS(_emscripten_setup_async_input_device, "$FS,$PATH,$FS_getMode");
+
+__attribute__((constructor)) void _emscripten_setup_async_input_device(void) {
+    _emscripten_setup_async_input_device_js();
+}
+
+// Wrapping the program entry point with WebAssembly.promising() is what lets
+// main() suspend, so that a blocking read() can await the input device
+// installed above. How Emscripten hands us that entry point depends on how we
+// were linked; see getEntryFunction() in Emscripten's src/parseTools.mjs.
+//
+// * With -sMAIN_MODULE, Emscripten looks main up through resolveGlobalSymbol(),
+//   so we hook the lookup. resolveGlobalSymbol() is defined in libdylink.js,
+//   which is only linked in for MAIN_MODULE builds.
+//
+// * Statically linked, Emscripten calls the `_main` binding directly. We rebind
+//   it to a wrapper around the raw export, because WebAssembly.promising()
+//   rejects the createExportWrapper() shim that `_main` normally holds. A
+//   static libpython is usually embedded in a host application whose main() is
+//   not Python's, so an embedder has to opt in by setting
+//   Module.Py_EmscriptenPromisingMain before the runtime starts.
+#ifdef Py_EMSCRIPTEN_DYNAMIC_LINKING
+#define _Py_EM_INSTALL_PROMISING_MAIN                                          \
+    const origResolveGlobalSymbol = resolveGlobalSymbol;                       \
+    resolveGlobalSymbol = function (name, direct = false) {                    \
+        const orig = origResolveGlobalSymbol(name, direct);                    \
+        if (name === "main") {                                                 \
+            orig.sym = _PyEM_promisingEntryPoint(orig.sym);                    \
+        }                                                                      \
+        return orig;                                                           \
+    };
+#else
+#define _Py_EM_INSTALL_PROMISING_MAIN                                          \
+    if (!Module.Py_EmscriptenPromisingMain) {                                  \
+        return;                                                                \
+    }                                                                          \
+    _main = _PyEM_promisingEntryPoint(wasmExports["main"]);
+#endif
+
+EM_JS_MACROS(void, _emscripten_promising_main_js, (void), {
     if (!WebAssembly.promising) {
         // No stack switching support =(
         return;
     }
-    const origResolveGlobalSymbol = resolveGlobalSymbol;
+    _Py_EM_INSTALL_PROMISING_MAIN
+}
+// * wrap the entry point with WebAssembly.promising,
+// * call exit_with_live_runtime() to prevent emscripten from shutting down
+//   the runtime before the promise resolves,
+// * call onExit / process.exit ourselves, since exit_with_live_runtime()
+//   prevented Emscripten from calling it normally.
+function _PyEM_promisingEntryPoint(orig) {
     if (ENVIRONMENT_IS_NODE && !Module.onExit) {
         Module.onExit = (code) => process.exit(code);
     }
-    // * wrap the main symbol with WebAssembly.promising,
-    // * call exit_with_live_runtime() to prevent emscripten from shutting down
-    //   the runtime before the promise resolves,
-    // * call onExit / process.exit ourselves, since exit_with_live_runtime()
-    //   prevented Emscripten from calling it normally.
-    resolveGlobalSymbol = function (name, direct = false) {
-        const orig = origResolveGlobalSymbol(name, direct);
-        if (name === "main") {
-            const main = WebAssembly.promising(orig.sym);
-            orig.sym = (...args) => {
-                (async () => {
-                    const ret = await main(...args);
-                    Module.onExit?.(ret);
-                })();
-                _emscripten_exit_with_live_runtime();
-            };
-        }
-        return orig;
+    const main = WebAssembly.promising(orig);
+    return (...args) => {
+        (async () => {
+            const ret = await main(...args);
+            Module.onExit?.(ret);
+        })();
+        _emscripten_exit_with_live_runtime();
     };
-})
+}
+)
+
+// EM_JS bodies are emitted verbatim, so Emscripten's dependency tracker cannot
+// see what they reference. Undeclared, these are dropped from the JS glue
+// without a diagnostic and the body throws a ReferenceError at initRuntime.
+#ifdef Py_EMSCRIPTEN_DYNAMIC_LINKING
+EM_JS_DEPS(_emscripten_promising_main,
+           "$resolveGlobalSymbol,emscripten_exit_with_live_runtime");
+#else
+EM_JS_DEPS(_emscripten_promising_main, "emscripten_exit_with_live_runtime");
+#endif
 
 __attribute__((constructor)) void _emscripten_promising_main(void) {
     _emscripten_promising_main_js();
