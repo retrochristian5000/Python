@@ -83,35 +83,6 @@ jobs:
     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       with:
         persist-credentials: false
-        ref: >-
-          ${{
-            github.event_name == 'pull_request'
-            && github.event.pull_request.head.sha
-            || ''
-          }}
-
-    # Adapted from https://github.com/actions/checkout/issues/520#issuecomment-1167205721
-    - name: Fetch commits to get branch diff
-      if: github.event_name == 'pull_request'
-      run: |
-        set -eux
-
-        # Fetch enough history to find a common ancestor commit (aka merge-base):
-        git fetch origin "${refspec_pr}" --depth=$(( commits + 1 )) \
-          --no-tags --prune --no-recurse-submodules
-
-        # This should get the oldest commit in the local fetched history (which may not be the commit the PR branched from):
-        COMMON_ANCESTOR=$( git rev-list --first-parent --max-parents=0 --max-count=1 "${branch_pr}" )
-        DATE=$( git log --date=iso8601 --format=%cd "${COMMON_ANCESTOR}" )
-
-        # Get all commits since that commit date from the base branch (eg: main):
-        git fetch origin "${refspec_base}" --shallow-since="${DATE}" \
-          --no-tags --prune --no-recurse-submodules
-      env:
-        branch_pr: 'origin/${{ github.event.pull_request.head.ref }}'
-        commits: ${{ github.event.pull_request.commits }}
-        refspec_base: '+${{ github.event.pull_request.base.sha }}:remotes/origin/${{ github.event.pull_request.base.ref }}'
-        refspec_pr: '+${{ github.event.pull_request.head.sha }}:remotes/origin/${{ github.event.pull_request.head.ref }}'
 
     # We only want to run tests on PRs when related files are changed,
     # or when someone triggers a manual workflow run.
@@ -122,4 +93,4 @@ jobs:
         GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         GITHUB_EVENT_NAME: ${{ github.event_name }}
         CCF_TARGET_REF: ${{ github.base_ref || github.event.repository.default_branch }}
-        CCF_HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        CCF_HEAD_REF: ${{ github.sha }}
