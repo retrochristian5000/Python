@@ -3130,6 +3130,19 @@ function closeMenu() {
     }
 }
 
+function sanitizeNavigationUrl(rawUrl) {
+    if (typeof rawUrl !== 'string' || rawUrl.trim() === '') return null;
+    try {
+        const parsed = new URL(rawUrl, window.location.origin);
+        const isHttp = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        if (!isHttp) return null;
+        if (parsed.origin !== window.location.origin) return null;
+        return parsed.href;
+    } catch (e) {
+        return null;
+    }
+}
+
 function showNavigationMenu(button, items, title) {
     closeMenu();
 
@@ -3152,7 +3165,12 @@ function showNavigationMenu(button, items, title) {
 
         item.appendChild(funcDiv);
         item.appendChild(createElement('div', 'callee-menu-file', linkData.file));
-        item.addEventListener('click', () => window.location.href = linkData.link);
+        item.addEventListener('click', () => {
+            const safeLink = sanitizeNavigationUrl(linkData.link);
+            if (safeLink) {
+                window.location.href = safeLink;
+            }
+        });
         menu.appendChild(item);
     });
 
@@ -3173,7 +3191,10 @@ function handleNavigationClick(button, e) {
 
     const navData = button.getAttribute('data-nav');
     if (navData) {
-        window.location.href = JSON.parse(navData).link;
+        const safeLink = sanitizeNavigationUrl(JSON.parse(navData).link);
+        if (safeLink) {
+            window.location.href = safeLink;
+        }
         return;
     }
 
