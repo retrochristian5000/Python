@@ -5597,6 +5597,36 @@ class ForkTests(unittest.TestCase):
         self.assertEqual(err.decode("utf-8"), "")
         self.assertEqual(out.decode("utf-8"), "")
 
+    @unittest.skipUnless(sys.platform == "darwin", "requires Darwin")
+    @unittest.skipIf(_testcapi is None, "requires _testcapi")
+    def test_fork_warns_repeatedly_with_native_thread_on_darwin(self):
+        # Each warning triggers the native OS-thread-count query.  In
+        # particular, the query must not retain Mach port rights/arrays.
+        code = """if 1:
+            import os, threading, warnings
+            from _testcapi import _spawn_pthread_waiter, _end_spawned_pthread
+            _spawn_pthread_waiter()
+            try:
+                for _ in range(8):
+                    with warnings.catch_warnings(record=True) as ws:
+                        warnings.simplefilter("always", DeprecationWarning)
+                        pid = os.fork()
+                        if pid == 0:
+                            os._exit(0)
+                        status = os.waitpid(pid, 0)[1]
+                        assert os.waitstatus_to_exitcode(status) == 0, status
+                    assert any(
+                        w.category is DeprecationWarning
+                        and "fork" in str(w.message) for w in ws
+                    ), ws
+                assert threading.active_count() == 1
+            finally:
+                _end_spawned_pthread()
+        """
+        _, out, err = assert_python_ok("-c", code, PYTHONOPTIMIZE="0")
+        self.assertEqual(err, b"")
+        self.assertEqual(out, b"")
+
     def test_fork_at_finalization(self):
         code = """if 1:
             import atexit

@@ -482,7 +482,7 @@ static const unsigned int _Py_STATX_KNOWN = (STATX_BASIC_STATS | STATX_BTIME
  */
 #if defined(__APPLE__)
 
-#include <mach/mach.h>
+#include <libproc.h>            // proc_pidinfo(), PROC_PIDTASKINFO
 
 #if defined(__has_builtin)
 #if __has_builtin(__builtin_available)
@@ -8554,15 +8554,18 @@ static Py_ssize_t get_number_of_os_threads(void)
     // raise an error rather than using the inaccurate fallback.
     Py_ssize_t num_python_threads = 0;
 #if defined(__APPLE__) && defined(HAVE_GETPID)
-    mach_port_t macos_self = mach_task_self();
-    mach_port_t macos_task;
-    if (task_for_pid(macos_self, getpid(), &macos_task) == KERN_SUCCESS) {
-        thread_array_t macos_threads;
-        mach_msg_type_number_t macos_n_threads;
-        if (task_threads(macos_task, &macos_threads,
-                         &macos_n_threads) == KERN_SUCCESS) {
-            num_python_threads = macos_n_threads;
-        }
+    // Query the current process without allocating Mach task/thread ports.
+    // task_for_pid() + task_threads() required releasing the returned task
+    // right, each thread right, and the VM-allocated port array.  These
+    // resources were not released by the previous implementation.
+    //
+    // proc_pidinfo() returns thread data in a caller-owned fixed-size buffer.
+    // On failure return 0, preserving the Python-thread-count fallback.
+    struct proc_taskinfo taskinfo;
+    if (proc_pidinfo(getpid(), PROC_PIDTASKINFO, 0, &taskinfo,
+                     sizeof(taskinfo)) == (int)sizeof(taskinfo) &&
+        taskinfo.pti_threadnum > 0) {
+        num_python_threads = taskinfo.pti_threadnum;
     }
 #elif defined(__linux__)
     // Linux /proc/self/stat 20th field is the number of threads.
